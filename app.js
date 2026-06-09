@@ -1313,6 +1313,23 @@ function bindUIEvents() {
     renderArtboard();
   });
   
+  // Settings Panel Toggle Button (Gear Icon)
+  const toggleSettingsBtn = document.getElementById('btn-toggle-settings');
+  const sidebar = document.querySelector('.sidebar');
+  if (toggleSettingsBtn && sidebar) {
+    if (!sidebar.classList.contains('hidden')) {
+      toggleSettingsBtn.classList.add('active');
+    }
+    toggleSettingsBtn.addEventListener('click', () => {
+      const isHidden = sidebar.classList.toggle('hidden');
+      if (isHidden) {
+        toggleSettingsBtn.classList.remove('active');
+      } else {
+        toggleSettingsBtn.classList.add('active');
+      }
+    });
+  }
+  
   // Regenerate Button
   document.getElementById('btn-regenerate').addEventListener('click', () => {
     const newSeed = Math.floor(Math.random() * 1000) + 1;
