@@ -2,12 +2,12 @@
 const SVG_WIDTH = 1000;
 const SVG_HEIGHT = 1500;
 
-// Default Feininger Colors for fallback/blending
-const FEININGER_SLATE = { r: 119, g: 136, b: 153 }; // #778899
-const FEININGER_OCHRE = { r: 218, g: 165, b: 32 };  // #DAA520
-const FEININGER_SAND = { r: 214, g: 206, b: 173 };  // #d6cead
-const FEININGER_PLUM = { r: 74, g: 21, b: 41 };     // #4a1529
-const FEININGER_DARK = { r: 20, g: 31, b: 51 };     // #141f33
+// Default Prismatic Colors for fallback/blending
+const PRISMATIC_SLATE = { r: 119, g: 136, b: 153 }; // #778899
+const PRISMATIC_OCHRE = { r: 218, g: 165, b: 32 };  // #DAA520
+const PRISMATIC_SAND = { r: 214, g: 206, b: 173 };  // #d6cead
+const PRISMATIC_PLUM = { r: 74, g: 21, b: 41 };     // #4a1529
+const PRISMATIC_DARK = { r: 20, g: 31, b: 51 };     // #141f33
 
 // App State
 const state = {
@@ -327,16 +327,16 @@ function sampleColor(x, y) {
   }
 }
 
-// Stylize a sampled color with Feininger aesthetics (mute it and blend with palette)
+// Stylize a sampled color with Prismatic aesthetics (mute it and blend with palette)
 function stylizeColor(rgb, type = 'lit') {
   // Convert color to HSL to perform controlled modifications
   let { r, g, b } = rgb;
   
-  // Blend with Feininger palette tones (20% blend to give historical feel)
+  // Blend with Prismatic palette tones (22% blend to give cohesive feel)
   const blendFactor = 0.22;
   const isWarm = (r > g && r > b); // Is it a reddish/pinkish/yellowish petal color?
   
-  const blendTarget = isWarm ? FEININGER_SAND : FEININGER_SLATE;
+  const blendTarget = isWarm ? PRISMATIC_SAND : PRISMATIC_SLATE;
   
   r = Math.round(r * (1 - blendFactor) + blendTarget.r * blendFactor);
   g = Math.round(g * (1 - blendFactor) + blendTarget.g * blendFactor);
@@ -1152,7 +1152,7 @@ function renderArtboard() {
   // Construct the full SVG string
   const svgHTML = `
     <svg 
-      id="feininger-dahlia-svg"
+      id="prismatic-dahlia-svg"
       xmlns="http://www.w3.org/2000/svg" 
       viewBox="0 0 ${SVG_WIDTH} ${SVG_HEIGHT}" 
       width="100%" 
@@ -1359,7 +1359,7 @@ function bindUIEvents() {
   
   // Download Button
   document.getElementById('btn-download').addEventListener('click', () => {
-    const svgEl = document.getElementById('feininger-dahlia-svg');
+    const svgEl = document.getElementById('prismatic-dahlia-svg');
     if (!svgEl) return;
     
     // Clone SVG element to modify for export
@@ -1388,7 +1388,7 @@ function bindUIEvents() {
     // Create temporary download link
     const downloadLink = document.createElement('a');
     downloadLink.href = blobUrl;
-    downloadLink.download = `feininger_dahlia_seed_${state.seed}.svg`;
+    downloadLink.download = `prismatic_dahlia_seed_${state.seed}.svg`;
     document.body.appendChild(downloadLink);
     downloadLink.click();
     
