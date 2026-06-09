@@ -652,11 +652,13 @@ svg.generative-art {
 }
 
 .anniversary-highlight {
-  color: var(--accent-orange);
+  display: inline-block;
   font-weight: 600;
-  background: linear-gradient(120deg, var(--accent-orange) 0%, #fad155 100%);
+  background: linear-gradient(120deg, var(--accent-orange) 0%, var(--accent-gold) 100%);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
+  color: var(--accent-orange);
 }
 
 /* Media Queries */
