@@ -1,6 +1,6 @@
 // SVG Dimensions
-const SVG_WIDTH = 800;
-const SVG_HEIGHT = 1200;
+const SVG_WIDTH = 1000;
+const SVG_HEIGHT = 1500;
 
 // Default Feininger Colors for fallback/blending
 const FEININGER_SLATE = { r: 119, g: 136, b: 153 }; // #778899
@@ -13,19 +13,19 @@ const FEININGER_DARK = { r: 20, g: 31, b: 51 };     // #141f33
 const state = {
   seed: 42,
   jitter: 12,
-  rings: 10,
-  petalsBase: 8,
-  scale: 1.1,
+  rings: 9,
+  petalsBase: 7,
+  scale: 1.3,
   rays: 6,
   rayOpacity: 0.10,
   blendMode: 'overlay',
   grain: true,
   animated: true,
   imageLoaded: false,
-  layoutMode: 'rings',
+  layoutMode: 'spiral',
   wedges: 4,
-  armature: true,
-  petalStyle: 'faceted',
+  armature: false,
+  petalStyle: 'curved',
   facetResolution: 6,
   animatedObjects: [],
   animationFrameId: null
@@ -54,8 +54,8 @@ function randomChoice(arr) {
 const LIGHT_DIR = { x: -0.4, y: -0.4, z: 0.82 };
 
 function rotate3DPoint(x, y, z, thetaX, thetaY) {
-  const cx = 400;
-  const cy = 480;
+  const cx = 500;
+  const cy = 600;
 
   let dx = x - cx;
   let dy = y - cy;
@@ -75,9 +75,9 @@ function rotate3DPoint(x, y, z, thetaX, thetaY) {
 }
 
 function projectRotatedPoint(rotatedPt) {
-  const cx = 400;
-  const cy = 480;
-  const cameraDistance = 1200;
+  const cx = 500;
+  const cy = 600;
+  const cameraDistance = 1500;
 
   let dx = rotatedPt.x - cx;
   let dy = rotatedPt.y - cy;
@@ -290,11 +290,11 @@ function initImageSampler() {
   }
 }
 
-// Samples color at (x, y) relative to SVG coordinates (800 x 1200)
+// Samples color at (x, y) relative to SVG coordinates (1000 x 1500)
 function sampleColor(x, y) {
   if (!state.imageLoaded) {
     // Return a default mathematical gradient if image not loaded
-    const dist = Math.hypot(x - 400, y - 550);
+    const dist = Math.hypot(x - 500, y - 600);
     if (dist < 250) {
       return { r: 196, g: 40, b: 31, a: 1 }; // Dahlia Red
     } else {
@@ -492,7 +492,7 @@ function generateDahliaPetals(cx, cy) {
   const petals = [];
   const numRings = state.rings;
   const basePetals = state.petalsBase;
-  const maxRadius = Math.min(SVG_WIDTH, SVG_HEIGHT) * 0.42 * state.scale;
+  const maxRadius = Math.min(SVG_WIDTH, SVG_HEIGHT) * 0.36 * state.scale;
   
   // Vibrant colors for blending (dynamically sampled from the flower core/highlights)
   const RICH_PURPLE = extractedColors.core; 
@@ -879,7 +879,7 @@ function generatePrismaticRays() {
     const leafWidth = randomRange(160, 320);
     
     let p1, p2;
-    let pTip = { x: 400 + randomRange(-150, 150), y: 480 + randomRange(-150, 150) };
+    let pTip = { x: 500 + randomRange(-150, 150), y: 600 + randomRange(-150, 150) };
     
     if (edge === 0) {
       // Top edge
@@ -951,7 +951,7 @@ function generatePrismaticWedges(cx, cy) {
   if (!count || count === 0) return '';
   
   const wedges = [];
-  const R = 1500; // large enough to cover the canvas and bleed out
+  const R = 1800; // large enough to cover the canvas and bleed out
   
   // Set deterministic PRNG seed based on current seed + 101
   setSeed(state.seed + 101);
@@ -1097,8 +1097,8 @@ function renderArtboard() {
   setSeed(state.seed);
   
   // Dahlia Core Location (slightly shifted upwards from center for portrait balance)
-  const cx = 400;
-  const cy = 480;
+  const cx = 500;
+  const cy = 600;
   
   // Generate parts
   const stemLeavesHTML = generateStemAndLeaves(cx, cy);
@@ -1336,8 +1336,8 @@ function bindUIEvents() {
     const clone = svgEl.cloneNode(true);
     
     // Add XML declaration and style tweaks for portability
-    clone.setAttribute('width', '800');
-    clone.setAttribute('height', '1200');
+    clone.setAttribute('width', '1000');
+    clone.setAttribute('height', '1500');
     
     // Convert SVG to text
     const serializer = new XMLSerializer();
