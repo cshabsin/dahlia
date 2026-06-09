@@ -652,15 +652,25 @@ function generateDahliaPetals(cx, cy) {
       };
     };
     
+    let hPc = 0;
+    let hEdge = 0;
+    if (zone === 1) {
+      hPc = -8;
+      hEdge = 4;
+    } else if (zone === 2) {
+      hPc = -25;
+      hEdge = 15;
+    } else { // zone === 3
+      hPc = -12;
+      hEdge = 10;
+    }
+
     const animSpeed = randomRange(4.8, 8.5);
 
     // Compute basic colors and targets
     const p0_sample = getPtOrthonormal(0, 0, 0);
     const p3_sample = getPtOrthonormal(pLen, 0, 0);
-    let zPcSample = 0;
-    if (zone === 2) zPcSample = -22;
-    else if (zone === 3) zPcSample = -5;
-    const pc_sample = getPtOrthonormal(pLen * 0.5, 0, zPcSample);
+    const pc_sample = getPtOrthonormal(pLen * 0.5, 0, hPc);
 
     const sampleBase = sampleColor(p0_sample.x, p0_sample.y);
     const sampleBody = sampleColor(pc_sample.x, pc_sample.y);
@@ -728,18 +738,16 @@ function generateDahliaPetals(cx, cy) {
       const getPetalPoints3D = (lenFactor, widthFactor) => {
         const curLen = pLen * lenFactor;
         const curWidth = pWidth * widthFactor;
-        
-        let hPc = 0;
-        if (zone === 2) hPc = -22 * lenFactor;
-        else if (zone === 3) hPc = -5 * lenFactor;
+        const curHPc = hPc * lenFactor;
+        const curHEdge = hEdge * lenFactor;
         
         const p0_layer = getPtOrthonormal(0, 0, 0);
-        const p1_layer = getPtOrthonormal(curLen * 0.35, -curWidth * 0.41, 0);
-        const p5_layer = getPtOrthonormal(curLen * 0.35, curWidth * 0.41, 0);
-        const p2_layer = getPtOrthonormal(curLen * 0.68, -curWidth * 0.525, 0);
-        const p4_layer = getPtOrthonormal(curLen * 0.68, curWidth * 0.525, 0);
+        const p1_layer = getPtOrthonormal(curLen * 0.35, -curWidth * 0.41, curHEdge * 0.7);
+        const p5_layer = getPtOrthonormal(curLen * 0.35, curWidth * 0.41, curHEdge * 0.7);
+        const p2_layer = getPtOrthonormal(curLen * 0.68, -curWidth * 0.525, curHEdge);
+        const p4_layer = getPtOrthonormal(curLen * 0.68, curWidth * 0.525, curHEdge);
         const p3_layer = getPtOrthonormal(curLen, 0, 0);
-        const pc_layer = getPtOrthonormal(curLen * 0.5, 0, hPc);
+        const pc_layer = getPtOrthonormal(curLen * 0.5, 0, curHPc);
         
         return {
           p0: p0_layer,
@@ -797,17 +805,14 @@ function generateDahliaPetals(cx, cy) {
         const u_j = (j / M) * pLen;
         const w_j = pWidth * Math.sin((j / M) * Math.PI);
         const v_j = w_j / 2;
+        const h_j = hEdge * Math.sin((j / M) * Math.PI);
         
-        leftPts.push(getPtOrthonormal(u_j, -v_j, 0));
-        rightPts.push(getPtOrthonormal(u_j, v_j, 0));
+        leftPts.push(getPtOrthonormal(u_j, -v_j, h_j));
+        rightPts.push(getPtOrthonormal(u_j, v_j, h_j));
         centerPts.push(getPtOrthonormal(u_j, 0, 0));
       }
-
-      let zPc = 0;
-      if (zone === 2) zPc = -22;
-      else if (zone === 3) zPc = -5;
       
-      const pc = getPtOrthonormal(pLen * 0.5, 0, zPc);
+      const pc = getPtOrthonormal(pLen * 0.5, 0, hPc);
 
       for (let j = 0; j < M; j++) {
         let fillL, fillR;
