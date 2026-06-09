@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="An interactive generative art tool creating Lyonel Feininger-style 'Prismatism' SVG vector art based on a dahlia photo. Custom parameters, canvas texture overlays, and animations.">
+  <title>Feininger Dahlia - Generative SVG Art</title>
+  
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- App Header -->
+  <header>
+    <div class="logo-container">
+      <div class="logo-icon" aria-hidden="true"></div>
+      <div>
+        <h1>Feininger Dahlia</h1>
+        <div class="meta">Prismatism Generative Art</div>
+      </div>
+    </div>
+    <div class="meta" id="status-display">CALM DAY AT SEA N+1 // MODE: SVG</div>
+  </header>
+
+  <!-- Main Workspace -->
+  <main>
+    <!-- Left Workspace (Art View) -->
+    <section class="workspace">
+      <div class="artboard-container">
+        <div class="artboard-glow" id="artboard-glow"></div>
+        <div class="artboard" id="artboard">
+          <!-- The generated SVG will be injected here -->
+          
+          <!-- Loader Overlay -->
+          <div class="loader-overlay" id="loader-overlay">
+            <div class="spinner"></div>
+            <div class="loader-text">Analyzing Dahlia & Building SVG...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Floating Reference Image -->
+      <div class="reference-panel" id="reference-panel" title="Click to view original dahlia image">
+        <img src="dahlia.webp" alt="Original Dahlia Reference Photo" id="reference-img">
+        <div class="reference-label">Reference</div>
+      </div>
+    </section>
+
+    <!-- Right Sidebar (Controls) -->
+    <aside class="sidebar">
+      <div class="sidebar-scroll">
+        
+        <!-- Section: Style Settings -->
+        <div>
+          <h2 class="section-title">
+            <span>Style Settings</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          </h2>
+          <div class="control-group">
+            <div class="control-item">
+              <div class="control-header">
+                <span class="control-label">Random Seed</span>
+                <span class="control-value" id="val-seed">1</span>
+              </div>
+              <input type="range" id="input-seed" min="1" max="1000" value="42">
+            </div>
+            
+            <div class="control-item">
+              <div class="control-header">
+                <span class="control-label">Facet Jitter</span>
+                <span class="control-value" id="val-jitter">12</span>
+              </div>
+              <input type="range" id="input-jitter" min="0" max="40" value="12">
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Section: Dahlia Geometry -->
+        <div>
+          <h2 class="section-title">
+            <span>Dahlia Petals</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+          </h2>
+          <div class="control-group">
+            <div class="control-item">
+              <div class="control-header">
+                <span class="control-label">Petal Rings</span>
+                <span class="control-value" id="val-rings">10</span>
+              </div>
+              <input type="range" id="input-rings" min="4" max="16" value="10">
+            </div>
+
+            <div class="control-item">
+              <div class="control-header">
+                <span class="control-label">Petals Base Count</span>
+                <span class="control-value" id="val-petals">8</span>
+              </div>
+              <input type="range" id="input-petals" min="6" max="16" value="8">
+            </div>
+
+            <div class="control-item">
+              <div class="control-header">
+                <span class="control-label">Petal Scale</span>
+                <span class="control-value" id="val-scale">1.1</span>
+              </div>
+              <input type="range" id="input-scale" min="0.5" max="2.0" step="0.1" value="1.1">
+            </div>
+          </div>
+        </div>
+
+        <!-- Section: Atmospheric Elements -->
+        <div>
+          <h2 class="section-title">
+            <span>Atmospheric Shards</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path></svg>
+          </h2>
+          <div class="control-group">
+            <div class="control-item">
+              <div class="control-header">
+                <span class="control-label">Foliage Leaves</span>
+                <span class="control-value" id="val-rays">6</span>
+              </div>
+              <input type="range" id="input-rays" min="0" max="12" value="6">
+            </div>
+
+            <div class="control-item">
+              <div class="control-header">
+                <span class="control-label">Leaf Opacity</span>
+                <span class="control-value" id="val-ray-opacity">0.10</span>
+              </div>
+              <input type="range" id="input-ray-opacity" min="0.00" max="0.30" step="0.02" value="0.10">
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Section: Rendering & Effects -->
+        <div>
+          <h2 class="section-title">
+            <span>Effects & Blending</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"></path><path d="M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12z"></path></svg>
+          </h2>
+          <div class="control-group">
+            <div class="control-item">
+              <span class="control-label">Primary Blending Mode</span>
+              <div class="select-wrapper">
+                <select id="input-blend">
+                  <option value="normal">Normal</option>
+                  <option value="multiply">Multiply (Shadows)</option>
+                  <option value="overlay" selected>Overlay (Contrast)</option>
+                  <option value="screen">Screen (Glows)</option>
+                  <option value="color-dodge">Color Dodge (Intense Highlights)</option>
+                  <option value="difference">Difference</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="toggle-item">
+              <span class="control-label">Canvas Grain Overlay</span>
+              <label class="switch">
+                <input type="checkbox" id="input-grain" checked>
+                <span class="slider-switch"></span>
+              </label>
+            </div>
+
+            <div class="toggle-item">
+              <span class="control-label">Gently Animated (Sway)</span>
+              <label class="switch">
+                <input type="checkbox" id="input-animated" checked>
+                <span class="slider-switch"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section: Custom Image Upload -->
+        <div>
+          <h2 class="section-title">
+            <span>Custom Color Palette</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"></path></svg>
+          </h2>
+          <div class="dropzone" id="dropzone">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"></path>
+            </svg>
+            <span>Click or Drag new photo here</span>
+            <span class="dropzone-sub">Samples color from upload</span>
+            <input type="file" id="file-input" accept="image/*" style="display: none;">
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Action Panel Footer -->
+      <div class="sidebar-actions">
+        <button class="btn btn-secondary" id="btn-regenerate">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
+          <span>Regen</span>
+        </button>
+        <button class="btn btn-primary" id="btn-download">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"></path></svg>
+          <span>Export SVG</span>
+        </button>
+      </div>
+    </aside>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
