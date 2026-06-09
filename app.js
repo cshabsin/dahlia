@@ -26,7 +26,9 @@ const state = {
   wedges: 4,
   armature: true,
   petalStyle: 'faceted',
-  facetResolution: 6
+  facetResolution: 6,
+  animatedObjects: [],
+  animationFrameId: null
 };
 
 // Seedable PRNG (Linear Congruential Generator)
@@ -46,6 +48,106 @@ function randomRange(min, max) {
 }
 function randomChoice(arr) {
   return arr[Math.floor(random() * arr.length)];
+}
+
+// 3D Projection & Lighting Utilities
+const LIGHT_DIR = { x: -0.4, y: -0.4, z: 0.82 };
+
+function rotate3DPoint(x, y, z, thetaX, thetaY) {
+  const cx = 400;
+  const cy = 480;
+
+  let dx = x - cx;
+  let dy = y - cy;
+  let dz = z;
+
+  const cosY = Math.cos(thetaY);
+  const sinY = Math.sin(thetaY);
+  const rx = dx * cosY + dz * sinY;
+  const rz = -dx * sinY + dz * cosY;
+
+  const cosX = Math.cos(thetaX);
+  const sinX = Math.sin(thetaX);
+  const ry = dy * cosX - rz * sinX;
+  const rz2 = dy * sinX + rz * cosX;
+
+  return { x: cx + rx, y: cy + ry, z: rz2 };
+}
+
+function projectRotatedPoint(rotatedPt) {
+  const cx = 400;
+  const cy = 480;
+  const cameraDistance = 1200;
+
+  let dx = rotatedPt.x - cx;
+  let dy = rotatedPt.y - cy;
+  let dz = rotatedPt.z;
+
+  const f = cameraDistance / (cameraDistance - dz);
+
+  return { x: cx + dx * f, y: cy + dy * f, z: dz };
+}
+
+function project3DPoint(x, y, z, thetaX = 0, thetaY = 0) {
+  const rotated = rotate3DPoint(x, y, z, thetaX, thetaY);
+  return projectRotatedPoint(rotated);
+}
+
+function calculateNormal(A, B, C) {
+  const ux = B.x - A.x;
+  const uy = B.y - A.y;
+  const uz = B.z - A.z;
+  const vx = C.x - A.x;
+  const vy = C.y - A.y;
+  const vz = C.z - A.z;
+  
+  let nx = uy * vz - uz * vy;
+  let ny = uz * vx - ux * vz;
+  let nz = ux * vy - uy * vx;
+  
+  if (nz < 0) {
+    nx = -nx;
+    ny = -ny;
+    nz = -nz;
+  }
+  
+  const len = Math.hypot(nx, ny, nz);
+  if (len < 0.0001) return { x: 0, y: 0, z: 1 };
+  return { x: nx / len, y: ny / len, z: nz / len };
+}
+
+function adjustColorLighting(colorStr, intensity) {
+  let r = 128, g = 128, b = 128;
+  
+  if (colorStr.startsWith('rgb')) {
+    const matches = colorStr.match(/\d+/g);
+    if (matches && matches.length >= 3) {
+      r = parseInt(matches[0], 10);
+      g = parseInt(matches[1], 10);
+      b = parseInt(matches[2], 10);
+    }
+  } else if (colorStr.startsWith('#')) {
+    const hex = colorStr.slice(1);
+    if (hex.length === 3) {
+      r = parseInt(hex[0] + hex[0], 16);
+      g = parseInt(hex[1] + hex[1], 16);
+      b = parseInt(hex[2] + hex[2], 16);
+    } else if (hex.length === 6) {
+      r = parseInt(hex.slice(0, 2), 16);
+      g = parseInt(hex.slice(2, 4), 16);
+      b = parseInt(hex.slice(4, 6), 16);
+    }
+  } else {
+    return colorStr;
+  }
+  
+  const scale = 1 + intensity * 0.7;
+  
+  const newR = Math.min(255, Math.max(0, Math.round(r * scale)));
+  const newG = Math.min(255, Math.max(0, Math.round(g * scale)));
+  const newB = Math.min(255, Math.max(0, Math.round(b * scale)));
+  
+  return `rgb(${newR}, ${newG}, ${newB})`;
 }
 
 // Color Sampling Setup
@@ -292,6 +394,43 @@ function createPathNode(d, fill, opacity, blendMode, id, transformOrigin = null,
   return `<path id="${id}" d="${d}" fill="${fill}" opacity="${opacity.toFixed(2)}"${styleStr}>${animElement}</path>`;
 }
 
+// 3D Animated Objects registration and rendering
+function registerAnimatedObject(id, type, pts3D, baseColor = null, layerLabel = null) {
+  state.animatedObjects.push({
+    id,
+    type,
+    pts3D,
+    baseColor,
+    layerLabel
+  });
+}
+
+function createAnimatedPolygon(points3D, fill, opacity, blendMode, id) {
+  registerAnimatedObject(id, 'polygon', points3D, fill);
+
+  const projected = points3D.map(p => project3DPoint(p.x, p.y, p.z, 0, 0));
+  const pointsStr = pointsToString(projected);
+  
+  const styleStr = blendMode !== 'normal' ? ` style="mix-blend-mode: ${blendMode};"` : '';
+  return `<polygon id="${id}" points="${pointsStr}" fill="${fill}" opacity="${opacity.toFixed(2)}"${styleStr}></polygon>`;
+}
+
+function createAnimatedPath(points3D, fill, opacity, blendMode, id, layerLabel) {
+  registerAnimatedObject(id, 'path', points3D, fill, layerLabel);
+
+  const projected = points3D.map(p => project3DPoint(p.x, p.y, p.z, 0, 0));
+  const [p0, c1, c2, p3, pc] = projected;
+  
+  const d = `M ${p0.x.toFixed(1)},${p0.y.toFixed(1)} ` +
+            `C ${c1.x.toFixed(1)},${c1.y.toFixed(1)} ` +
+            `${c2.x.toFixed(1)},${c2.y.toFixed(1)} ` +
+            `${p3.x.toFixed(1)},${p3.y.toFixed(1)} ` +
+            `L ${pc.x.toFixed(1)},${pc.y.toFixed(1)} Z`;
+            
+  const styleStr = blendMode !== 'normal' ? ` style="mix-blend-mode: ${blendMode};"` : '';
+  return `<path id="${id}" d="${d}" fill="${fill}" opacity="${opacity.toFixed(2)}"${styleStr}></path>`;
+}
+
 
 
 // Generates stem and foliage
@@ -306,15 +445,15 @@ function generateStemAndLeaves(cx, cy) {
   const stemBottomY = SVG_HEIGHT;
   
   const stemPoints1 = [
-    { x: stemTopX - 15 + randomRange(-jit, jit), y: stemTopY },
-    { x: stemTopX + 10 + randomRange(-jit, jit), y: stemTopY },
-    { x: stemBottomX + 25 + randomRange(-jit, jit), y: stemBottomY },
-    { x: stemBottomX - 10 + randomRange(-jit, jit), y: stemBottomY }
+    { x: stemTopX - 15 + randomRange(-jit, jit), y: stemTopY, z: -20 },
+    { x: stemTopX + 10 + randomRange(-jit, jit), y: stemTopY, z: -20 },
+    { x: stemBottomX + 25 + randomRange(-jit, jit), y: stemBottomY, z: -60 },
+    { x: stemBottomX - 10 + randomRange(-jit, jit), y: stemBottomY, z: -60 }
   ];
   
   // Sample green tones from stem area
   const stemCol = stylizeColor(sampleColor(cx, (cy + SVG_HEIGHT) / 2), 'shaded');
-  elements.push(createPolygonNode(stemPoints1, stemCol, 0.95, 'normal', 'stem-base'));
+  elements.push(createAnimatedPolygon(stemPoints1, stemCol, 0.95, 'normal', 'stem-base'));
   
   // 2. Leaves: large shards branching off the stem
   const numLeaves = 4;
@@ -326,10 +465,10 @@ function generateStemAndLeaves(cx, cy) {
     const leafEndY = leafY + randomRange(40, 120);
     
     const leafPoints = [
-      { x: leafStartX, y: leafY },
-      { x: leafStartX + (side * 40), y: leafY - 30 },
-      { x: leafEndX, y: leafEndY },
-      { x: leafStartX, y: leafY + 60 }
+      { x: leafStartX, y: leafY, z: -30 },
+      { x: leafStartX + (side * 40), y: leafY - 30, z: -40 },
+      { x: leafEndX, y: leafEndY, z: -50 },
+      { x: leafStartX, y: leafY + 60, z: -30 }
     ];
     
     // Sample foliage color
@@ -338,15 +477,11 @@ function generateStemAndLeaves(cx, cy) {
     const fillShade = stylizeColor(col, 'shaded');
     
     // Split leaf in two triangles
-    const splitLine = [leafPoints[0], leafPoints[2]];
     const tri1 = [leafPoints[0], leafPoints[1], leafPoints[2]];
     const tri2 = [leafPoints[0], leafPoints[3], leafPoints[2]];
     
-    const origin = leafPoints[0];
-    const dur = randomRange(5, 9);
-    
-    elements.push(createPolygonNode(tri1, fillLit, 0.85, 'normal', `leaf-${i}-lit`, origin, dur));
-    elements.push(createPolygonNode(tri2, fillShade, 0.85, 'normal', `leaf-${i}-shade`, origin, dur));
+    elements.push(createAnimatedPolygon(tri1, fillLit, 0.85, 'normal', `leaf-${i}-lit`));
+    elements.push(createAnimatedPolygon(tri2, fillShade, 0.85, 'normal', `leaf-${i}-shade`));
   }
   
   return elements.join('\n');
@@ -485,21 +620,47 @@ function generateDahliaPetals(cx, cy) {
     // Jitter scales down near the center of the flower
     const jit = state.jitter * rPct;
     
-    const getPt = (rOffset, aOffset) => {
-      const x = cx + rOffset * Math.cos(angle + aOffset);
-      const y = cy + rOffset * Math.sin(angle + aOffset);
+    const zRing = 60 * (1 - rPct) - 30 * rPct;
+    
+    // Orthonormal Basis setup for this petal
+    // Pitch angle: steep at center (Zone 1), cup-angled in Zone 2, flatter in Zone 3
+    const phi = (65 * Math.pow(1 - rPct, 0.8) + 12 * rPct) * Math.PI / 180;
+    
+    const cosT = Math.cos(angle);
+    const sinT = Math.sin(angle);
+    const cosP = Math.cos(phi);
+    const sinP = Math.sin(phi);
+    
+    const ux = cosT * cosP, uy = sinT * cosP, uz = sinP;
+    const vx = -sinT, vy = cosT, vz = 0;
+    const wx = -cosT * sinP, wy = -sinT * sinP, wz = cosP;
+    
+    const rBase = ringRadius - pLen * 0.5;
+    
+    const x0 = cx + rBase * cosT;
+    const y0 = cy + rBase * sinT;
+    const z0 = zRing;
+
+    const getPtOrthonormal = (u, v, h) => {
+      const x = x0 + u * ux + v * vx + h * wx;
+      const y = y0 + u * uy + v * vy + h * wy;
+      const z = z0 + u * uz + v * vz + h * wz;
       return {
         x: x + randomRange(-jit, jit),
-        y: y + randomRange(-jit, jit)
+        y: y + randomRange(-jit, jit),
+        z: z
       };
     };
     
     const animSpeed = randomRange(4.8, 8.5);
 
     // Compute basic colors and targets
-    const p0_sample = getPt(ringRadius - pLen * 0.5, 0);
-    const p3_sample = getPt(ringRadius + pLen * 0.5, 0);
-    const pc_sample = getPt(ringRadius, 0);
+    const p0_sample = getPtOrthonormal(0, 0, 0);
+    const p3_sample = getPtOrthonormal(pLen, 0, 0);
+    let zPcSample = 0;
+    if (zone === 2) zPcSample = -22;
+    else if (zone === 3) zPcSample = -5;
+    const pc_sample = getPtOrthonormal(pLen * 0.5, 0, zPcSample);
 
     const sampleBase = sampleColor(p0_sample.x, p0_sample.y);
     const sampleBody = sampleColor(pc_sample.x, pc_sample.y);
@@ -564,19 +725,21 @@ function generateDahliaPetals(cx, cy) {
 
     if (state.petalStyle === 'curved') {
       // --- CURVED BÉZIER MODE ---
-      const getPetalPoints = (lenFactor, widthFactor) => {
+      const getPetalPoints3D = (lenFactor, widthFactor) => {
         const curLen = pLen * lenFactor;
         const curWidth = pWidth * widthFactor;
         
-        const p0_layer = getPt(ringRadius - pLen * 0.5, 0);
-        const shoulderAngle_layer = curWidth / (2 * Math.max(ringRadius, 5));
+        let hPc = 0;
+        if (zone === 2) hPc = -22 * lenFactor;
+        else if (zone === 3) hPc = -5 * lenFactor;
         
-        const p1_layer = getPt(ringRadius - pLen * 0.5 + curLen * 0.35, -shoulderAngle_layer * 0.82);
-        const p5_layer = getPt(ringRadius - pLen * 0.5 + curLen * 0.35, shoulderAngle_layer * 0.82);
-        const p2_layer = getPt(ringRadius - pLen * 0.5 + curLen * 0.68, -shoulderAngle_layer * 1.05);
-        const p4_layer = getPt(ringRadius - pLen * 0.5 + curLen * 0.68, shoulderAngle_layer * 1.05);
-        const p3_layer = getPt(ringRadius - pLen * 0.5 + curLen, 0);
-        const pc_layer = getPt(ringRadius - pLen * 0.5 + curLen * 0.5, 0);
+        const p0_layer = getPtOrthonormal(0, 0, 0);
+        const p1_layer = getPtOrthonormal(curLen * 0.35, -curWidth * 0.41, 0);
+        const p5_layer = getPtOrthonormal(curLen * 0.35, curWidth * 0.41, 0);
+        const p2_layer = getPtOrthonormal(curLen * 0.68, -curWidth * 0.525, 0);
+        const p4_layer = getPtOrthonormal(curLen * 0.68, curWidth * 0.525, 0);
+        const p3_layer = getPtOrthonormal(curLen, 0, 0);
+        const pc_layer = getPtOrthonormal(curLen * 0.5, 0, hPc);
         
         return {
           p0: p0_layer,
@@ -589,26 +752,14 @@ function generateDahliaPetals(cx, cy) {
         };
       };
 
-      const ptsFull = getPetalPoints(1.0, 1.0);
-      const origin = ptsFull.p0;
-
       const drawCurvedLayer = (lenFactor, widthFactor, fillL, fillR, opacity, label) => {
-        const pts = getPetalPoints(lenFactor, widthFactor);
+        const pts = getPetalPoints3D(lenFactor, widthFactor);
         
-        const leftPath = `M ${pts.p0.x.toFixed(1)},${pts.p0.y.toFixed(1)} ` +
-                         `C ${pts.p1.x.toFixed(1)},${pts.p1.y.toFixed(1)} ` +
-                         `${pts.p2.x.toFixed(1)},${pts.p2.y.toFixed(1)} ` +
-                         `${pts.p3.x.toFixed(1)},${pts.p3.y.toFixed(1)} ` +
-                         `L ${pts.pc.x.toFixed(1)},${pts.pc.y.toFixed(1)} Z`;
-                         
-        const rightPath = `M ${pts.p0.x.toFixed(1)},${pts.p0.y.toFixed(1)} ` +
-                          `C ${pts.p5.x.toFixed(1)},${pts.p5.y.toFixed(1)} ` +
-                          `${pts.p4.x.toFixed(1)},${pts.p4.y.toFixed(1)} ` +
-                          `${pts.p3.x.toFixed(1)},${pts.p3.y.toFixed(1)} ` +
-                          `L ${pts.pc.x.toFixed(1)},${pts.pc.y.toFixed(1)} Z`;
+        const leftPts3D = [pts.p0, pts.p1, pts.p2, pts.p3, pts.pc];
+        const rightPts3D = [pts.p0, pts.p5, pts.p4, pts.p3, pts.pc];
                           
-        petals.push(createPathNode(leftPath, fillL, opacity, 'normal', `petal-r${rIndex}-p${pIndex}-${label}-l`, origin, animSpeed));
-        petals.push(createPathNode(rightPath, fillR, opacity, 'normal', `petal-r${rIndex}-p${pIndex}-${label}-r`, origin, animSpeed));
+        petals.push(createAnimatedPath(leftPts3D, fillL, opacity, 'normal', `petal-r${rIndex}-p${pIndex}-${label}-l`, label));
+        petals.push(createAnimatedPath(rightPts3D, fillR, opacity, 'normal', `petal-r${rIndex}-p${pIndex}-${label}-r`, label));
       };
 
       if (zone === 1) {
@@ -637,24 +788,26 @@ function generateDahliaPetals(cx, cy) {
     } else {
       // --- FACETED MODE (POLYGONS) ---
       const M = state.facetResolution / 2; // e.g. 2, 3, 4, 5, 6
-      const rStart = ringRadius - pLen * 0.5;
       
       const leftPts = [];
       const rightPts = [];
       const centerPts = [];
       
       for (let j = 0; j <= M; j++) {
-        const r_j = rStart + (j / M) * pLen;
+        const u_j = (j / M) * pLen;
         const w_j = pWidth * Math.sin((j / M) * Math.PI);
-        const theta_j = w_j / (2 * Math.max(r_j, 5));
+        const v_j = w_j / 2;
         
-        leftPts.push(getPt(r_j, -theta_j));
-        rightPts.push(getPt(r_j, theta_j));
-        centerPts.push(getPt(r_j, 0));
+        leftPts.push(getPtOrthonormal(u_j, -v_j, 0));
+        rightPts.push(getPtOrthonormal(u_j, v_j, 0));
+        centerPts.push(getPtOrthonormal(u_j, 0, 0));
       }
 
-      const pc = getPt(ringRadius, 0);
-      const origin = centerPts[0];
+      let zPc = 0;
+      if (zone === 2) zPc = -22;
+      else if (zone === 3) zPc = -5;
+      
+      const pc = getPtOrthonormal(pLen * 0.5, 0, zPc);
 
       for (let j = 0; j < M; j++) {
         let fillL, fillR;
@@ -682,19 +835,19 @@ function generateDahliaPetals(cx, cy) {
           }
         }
 
-        petals.push(createPolygonNode([pc, leftPts[j], leftPts[j+1]], fillL, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-seg${j}-l`, origin, animSpeed));
-        petals.push(createPolygonNode([pc, rightPts[j], rightPts[j+1]], fillR, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-seg${j}-r`, origin, animSpeed));
+        petals.push(createAnimatedPolygon([pc, leftPts[j], leftPts[j+1]], fillL, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-seg${j}-l`));
+        petals.push(createAnimatedPolygon([pc, rightPts[j], rightPts[j+1]], fillR, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-seg${j}-r`));
       }
 
       // Hollow overlay for Zone 2
       if (zone === 2) {
-        petals.push(createPolygonNode([pc, leftPts[M-1], rightPts[M-1]], fHollow, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-hollow`, origin, animSpeed));
+        petals.push(createAnimatedPolygon([pc, leftPts[M-1], rightPts[M-1]], fHollow, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-hollow`));
       }
 
       // Border triangles
       for (let j = 1; j <= M - 2; j++) {
-        petals.push(createPolygonNode([leftPts[j], leftPts[j+1], leftPts[M]], fBorderL, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-border-l-${j}`, origin, animSpeed));
-        petals.push(createPolygonNode([rightPts[j], rightPts[j+1], rightPts[M]], fBorderR, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-border-r-${j}`, origin, animSpeed));
+        petals.push(createAnimatedPolygon([leftPts[j], leftPts[j+1], leftPts[M]], fBorderL, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-border-l-${j}`));
+        petals.push(createAnimatedPolygon([rightPts[j], rightPts[j+1], rightPts[M]], fBorderR, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-border-r-${j}`));
       }
     }
   });
@@ -774,25 +927,14 @@ function generatePrismaticRays() {
     
     const fillBase = stylizeColor({ r, g, b }, i % 2 === 0 ? 'lit' : 'shaded');
     
-    // Animation: sway leaf slightly around its base midpoint
-    const midBaseX = (p1.x + p2.x) / 2;
-    const midBaseY = (p1.y + p2.y) / 2;
-    
-    let animElement = '';
-    if (state.animated) {
-      const dur = randomRange(10, 18);
-      animElement = `<animateTransform 
-        attributeName="transform" 
-        type="rotate" 
-        values="-2.2 ${midBaseX.toFixed(1)} ${midBaseY.toFixed(1)}; 2.2 ${midBaseX.toFixed(1)} ${midBaseY.toFixed(1)}; -2.2 ${midBaseX.toFixed(1)} ${midBaseY.toFixed(1)}" 
-        dur="${dur.toFixed(2)}s" 
-        repeatCount="indefinite" />`;
-    }
-    
-    const pts = [p1, p2, pTip];
+    const pts = [
+      { x: p1.x, y: p1.y, z: -120 },
+      { x: p2.x, y: p2.y, z: -120 },
+      { x: pTip.x, y: pTip.y, z: -80 }
+    ];
     const leafOpacity = Math.min(0.95, state.rayOpacity * 2.8); // make them significantly brighter & more visible
     
-    leaves.push(`<polygon points="${pointsToString(pts)}" fill="${fillBase}" opacity="${leafOpacity.toFixed(2)}">${animElement}</polygon>`);
+    leaves.push(createAnimatedPolygon(pts, fillBase, leafOpacity, 'normal', `bg-leaf-${i}`));
   }
   
   return leaves.join('\n');
@@ -880,7 +1022,12 @@ function generateArmatureLines(cx, cy) {
     const strokeWidth = i === 0 ? 1.5 : 1;
     const opacity = randomRange(0.12, 0.28);
     
-    elements.push(`<line x1="${p1.x.toFixed(1)}" y1="${p1.y.toFixed(1)}" x2="${p2.x.toFixed(1)}" y2="${p2.y.toFixed(1)}" stroke="${color}" stroke-width="${strokeWidth}" opacity="${opacity.toFixed(2)}" style="pointer-events: none;" />`);
+    const p1_3d = { x: p1.x, y: p1.y, z: 0 };
+    const p2_3d = { x: p2.x, y: p2.y, z: 0 };
+    const lineId = `armature-line-${i}`;
+    registerAnimatedObject(lineId, 'line', [p1_3d, p2_3d]);
+    
+    elements.push(`<line id="${lineId}" x1="${p1.x.toFixed(1)}" y1="${p1.y.toFixed(1)}" x2="${p2.x.toFixed(1)}" y2="${p2.y.toFixed(1)}" stroke="${color}" stroke-width="${strokeWidth}" opacity="${opacity.toFixed(2)}" style="pointer-events: none;" />`);
   }
   
   // 2. Draw glowing light nodes (stars) at select intersection coordinates
@@ -905,7 +1052,10 @@ function generateArmatureLines(cx, cy) {
     if (pt) {
       const radius = randomRange(1.8, 3.2);
       const opacity = randomRange(0.4, 0.75);
-      elements.push(`<circle cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="${radius.toFixed(1)}" fill="#ffffff" opacity="${opacity.toFixed(2)}" style="pointer-events: none;" />`);
+      const pt_3d = { x: pt.x, y: pt.y, z: 0 };
+      const circleId = `armature-node-${i}`;
+      registerAnimatedObject(circleId, 'circle', [pt_3d]);
+      elements.push(`<circle id="${circleId}" cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="${radius.toFixed(1)}" fill="#ffffff" opacity="${opacity.toFixed(2)}" style="pointer-events: none;" />`);
     }
   }
   
@@ -917,7 +1067,10 @@ function generateArmatureLines(cx, cy) {
     const px = cx + radiusFromCenter * Math.cos(angle);
     const py = cy + radiusFromCenter * Math.sin(angle);
     const r = randomRange(1.2, 2.2);
-    elements.push(`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${r.toFixed(1)}" fill="#ffffff" opacity="0.5" style="pointer-events: none;" />`);
+    const pt_3d = { x: px, y: py, z: 0 };
+    const circleId = `armature-center-node-${i}`;
+    registerAnimatedObject(circleId, 'circle', [pt_3d]);
+    elements.push(`<circle id="${circleId}" cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${r.toFixed(1)}" fill="#ffffff" opacity="0.5" style="pointer-events: none;" />`);
   }
   
   return elements.join('\n');
@@ -927,6 +1080,13 @@ function generateArmatureLines(cx, cy) {
 function renderArtboard() {
   const loader = document.getElementById('loader-overlay');
   loader.classList.add('active');
+  
+  // Cancel existing animation frame and clear registry cache
+  if (state.animationFrameId) {
+    cancelAnimationFrame(state.animationFrameId);
+    state.animationFrameId = null;
+  }
+  state.animatedObjects = [];
   
   // Set random seed
   setSeed(state.seed);
@@ -1025,6 +1185,13 @@ function renderArtboard() {
   setTimeout(() => {
     loader.classList.remove('active');
   }, 100);
+
+  // Start 3D perspective pivoting loop if enabled
+  if (state.animated) {
+    startAnimation();
+  } else {
+    stopAnimation();
+  }
 }
 
 // Binds UI events to the app state
@@ -1126,7 +1293,11 @@ function bindUIEvents() {
   animatedCheckbox.checked = state.animated;
   animatedCheckbox.addEventListener('change', (e) => {
     state.animated = e.target.checked;
-    renderArtboard();
+    if (state.animated) {
+      startAnimation();
+    } else {
+      stopAnimation();
+    }
   });
 
   // Armature checkbox control
@@ -1258,6 +1429,130 @@ function handleImageUpload(file) {
     };
   };
   reader.readAsDataURL(file);
+}
+
+// --- 3D PERSPECTIVE PIVOTING ANIMATION LOOP ---
+
+function startAnimation() {
+  if (state.animationFrameId) return;
+  state.animationFrameId = requestAnimationFrame(animate);
+}
+
+function stopAnimation() {
+  if (state.animationFrameId) {
+    cancelAnimationFrame(state.animationFrameId);
+    state.animationFrameId = null;
+  }
+  resetToFlatProjection();
+}
+
+function animate(timestamp) {
+  if (!state.animated) return;
+
+  const thetaY = 0.05 * Math.cos(timestamp * 0.0008);
+  const thetaX = 0.04 * Math.sin(timestamp * 0.0006);
+
+  state.animatedObjects.forEach(obj => {
+    const el = document.getElementById(obj.id);
+    if (!el) return;
+
+    const rotated = obj.pts3D.map(p => rotate3DPoint(p.x, p.y, p.z, thetaX, thetaY));
+    const projected = rotated.map(p => projectRotatedPoint(p));
+
+    if (obj.baseColor && (obj.type === 'polygon' || obj.type === 'path')) {
+      let A, B, C;
+      if (obj.type === 'polygon' && rotated.length >= 3) {
+        A = rotated[0];
+        B = rotated[1];
+        C = rotated[2];
+      } else if (obj.type === 'path' && rotated.length >= 4) {
+        A = rotated[0];
+        B = rotated[1];
+        C = rotated[3];
+      }
+      if (A && B && C) {
+        const normal = calculateNormal(A, B, C);
+        const dot = normal.x * LIGHT_DIR.x + normal.y * LIGHT_DIR.y + normal.z * LIGHT_DIR.z;
+        const intensity = Math.min(0.3, Math.max(-0.3, dot));
+        el.setAttribute('fill', adjustColorLighting(obj.baseColor, intensity));
+      }
+    }
+
+    if (obj.type === 'polygon') {
+      el.setAttribute('points', pointsToString(projected));
+    } else if (obj.type === 'path') {
+      const [p0, c1, c2, p3, pc] = projected;
+      const d = `M ${p0.x.toFixed(1)},${p0.y.toFixed(1)} ` +
+                `C ${c1.x.toFixed(1)},${c1.y.toFixed(1)} ` +
+                `${c2.x.toFixed(1)},${c2.y.toFixed(1)} ` +
+                `${p3.x.toFixed(1)},${p3.y.toFixed(1)} ` +
+                `L ${pc.x.toFixed(1)},${pc.y.toFixed(1)} Z`;
+      el.setAttribute('d', d);
+    } else if (obj.type === 'line') {
+      const [p1, p2] = projected;
+      el.setAttribute('x1', p1.x.toFixed(1));
+      el.setAttribute('y1', p1.y.toFixed(1));
+      el.setAttribute('x2', p2.x.toFixed(1));
+      el.setAttribute('y2', p2.y.toFixed(1));
+    } else if (obj.type === 'circle') {
+      const [pt] = projected;
+      el.setAttribute('cx', pt.x.toFixed(1));
+      el.setAttribute('cy', pt.y.toFixed(1));
+    }
+  });
+
+  state.animationFrameId = requestAnimationFrame(animate);
+}
+
+function resetToFlatProjection() {
+  state.animatedObjects.forEach(obj => {
+    const el = document.getElementById(obj.id);
+    if (!el) return;
+
+    const rotated = obj.pts3D.map(p => rotate3DPoint(p.x, p.y, p.z, 0, 0));
+    const projected = rotated.map(p => projectRotatedPoint(p));
+
+    if (obj.baseColor && (obj.type === 'polygon' || obj.type === 'path')) {
+      let A, B, C;
+      if (obj.type === 'polygon' && rotated.length >= 3) {
+        A = rotated[0];
+        B = rotated[1];
+        C = rotated[2];
+      } else if (obj.type === 'path' && rotated.length >= 4) {
+        A = rotated[0];
+        B = rotated[1];
+        C = rotated[3];
+      }
+      if (A && B && C) {
+        const normal = calculateNormal(A, B, C);
+        const dot = normal.x * LIGHT_DIR.x + normal.y * LIGHT_DIR.y + normal.z * LIGHT_DIR.z;
+        const intensity = Math.min(0.3, Math.max(-0.3, dot));
+        el.setAttribute('fill', adjustColorLighting(obj.baseColor, intensity));
+      }
+    }
+
+    if (obj.type === 'polygon') {
+      el.setAttribute('points', pointsToString(projected));
+    } else if (obj.type === 'path') {
+      const [p0, c1, c2, p3, pc] = projected;
+      const d = `M ${p0.x.toFixed(1)},${p0.y.toFixed(1)} ` +
+                `C ${c1.x.toFixed(1)},${c1.y.toFixed(1)} ` +
+                `${c2.x.toFixed(1)},${c2.y.toFixed(1)} ` +
+                `${p3.x.toFixed(1)},${p3.y.toFixed(1)} ` +
+                `L ${pc.x.toFixed(1)},${pc.y.toFixed(1)} Z`;
+      el.setAttribute('d', d);
+    } else if (obj.type === 'line') {
+      const [p1, p2] = projected;
+      el.setAttribute('x1', p1.x.toFixed(1));
+      el.setAttribute('y1', p1.y.toFixed(1));
+      el.setAttribute('x2', p2.x.toFixed(1));
+      el.setAttribute('y2', p2.y.toFixed(1));
+    } else if (obj.type === 'circle') {
+      const [pt] = projected;
+      el.setAttribute('cx', pt.x.toFixed(1));
+      el.setAttribute('cy', pt.y.toFixed(1));
+    }
+  });
 }
 
 // Start Application on load
