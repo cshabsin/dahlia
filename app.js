@@ -704,8 +704,14 @@ function generateDahliaPetals(cx, cy) {
       
       fBaseL = stylizeColor({ r: baseR, g: baseG, b: baseB }, 'lit');
       fBaseR = stylizeColor({ r: baseR, g: baseG, b: baseB }, 'shaded');
-      fRimL = stylizeColor(whiteTarget, 'lit');
-      fRimR = stylizeColor(whiteTarget, 'shaded');
+      
+      // Middle wall color: intermediate between deep plum shadow and core purple
+      const wallR = DEEP_PLUM_VAL.r * 0.5 + RICH_PURPLE.r * 0.5;
+      const wallG = DEEP_PLUM_VAL.g * 0.5 + RICH_PURPLE.g * 0.5;
+      const wallB = DEEP_PLUM_VAL.b * 0.5 + RICH_PURPLE.b * 0.5;
+      
+      fRimL = stylizeColor({ r: wallR, g: wallG, b: wallB }, 'lit');
+      fRimR = stylizeColor({ r: wallR, g: wallG, b: wallB }, 'shaded');
       fHollow = stylizeColor(DEEP_PLUM_VAL, 'shaded');
       fBorderL = 'rgb(255, 255, 253)';
       fBorderR = 'rgb(230, 230, 225)';
