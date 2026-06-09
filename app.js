@@ -21,7 +21,12 @@ const state = {
   blendMode: 'overlay',
   grain: true,
   animated: true,
-  imageLoaded: false
+  imageLoaded: false,
+  layoutMode: 'rings',
+  wedges: 4,
+  armature: true,
+  petalStyle: 'faceted',
+  facetResolution: 6
 };
 
 // Seedable PRNG (Linear Congruential Generator)
@@ -269,6 +274,24 @@ function createPolygonNode(points, fill, opacity, blendMode, id, transformOrigin
   return `<polygon id="${id}" points="${pointsStr}" fill="${fill}" opacity="${opacity.toFixed(2)}"${styleStr}>${animElement}</polygon>`;
 }
 
+// Helper to construct a single path SVG node
+function createPathNode(d, fill, opacity, blendMode, id, transformOrigin = null, animSpeed = 0) {
+  let animElement = '';
+  if (state.animated && animSpeed > 0 && transformOrigin) {
+    // Sway animation (rotate -1.5deg to 1.5deg around origin)
+    animElement = `<animateTransform 
+      attributeName="transform" 
+      type="rotate" 
+      values="-1.5 ${transformOrigin.x.toFixed(1)} ${transformOrigin.y.toFixed(1)}; 1.5 ${transformOrigin.x.toFixed(1)} ${transformOrigin.y.toFixed(1)}; -1.5 ${transformOrigin.x.toFixed(1)} ${transformOrigin.y.toFixed(1)}" 
+      dur="${animSpeed.toFixed(2)}s" 
+      repeatCount="indefinite" />`;
+  }
+  
+  const styleStr = blendMode !== 'normal' ? ` style="mix-blend-mode: ${blendMode};"` : '';
+  
+  return `<path id="${id}" d="${d}" fill="${fill}" opacity="${opacity.toFixed(2)}"${styleStr}>${animElement}</path>`;
+}
+
 
 
 // Generates stem and foliage
@@ -329,7 +352,7 @@ function generateStemAndLeaves(cx, cy) {
   return elements.join('\n');
 }
 
-// Generates concentric layers of Dahlia petals
+// Generates concentric layers or Fibonacci spiral of Dahlia petals
 function generateDahliaPetals(cx, cy) {
   const petals = [];
   const numRings = state.rings;
@@ -340,230 +363,342 @@ function generateDahliaPetals(cx, cy) {
   const RICH_PURPLE = extractedColors.core; 
   const DEEP_PLUM_VAL = extractedColors.shadow;
   const whiteTarget = extractedColors.highlight;
-  
-  // We generate petals from outermost ring to innermost, so that inner petals draw on top
-  for (let rIndex = numRings - 1; rIndex >= 0; rIndex--) {
-    // Rings closer to center are smaller
-    const ringRadius = maxRadius * Math.pow((rIndex + 1) / numRings, 1.10);
-    // Outer rings have more petals
-    const numPetals = Math.floor(basePetals + rIndex * 1.8);
-    const angleStep = (Math.PI * 2) / numPetals;
-    
-    // Alternate rotation offset to interlock petals
-    const angleOffset = rIndex * 0.13;
-    
-    // Normalized distance from center (0 at core, 1 at edge)
-    const rPct = (rIndex + 1) / numRings;
-    
-    // Determine the petal zone
-    // Zone 1: Innermost (rPct < 0.28) - bunched up, narrow, almost entirely purple with white fade tip
-    // Zone 2: Intermediate Cups (0.28 <= rPct < 0.55) - cups, white rim, purple inside
-    // Zone 3: Outermost (rPct >= 0.55) - normal petals, 80% purple, white highlights/borders
-    let zone = 3;
-    if (rPct < 0.28) {
-      zone = 1;
-    } else if (rPct < 0.55) {
-      zone = 2;
+
+  // Gather list of petals to render
+  const petalList = [];
+
+  if (state.layoutMode === 'spiral') {
+    // 1. FIBONACCI SPIRAL LAYOUT
+    let totalPetals = 0;
+    for (let r = 0; r < numRings; r++) {
+      totalPetals += Math.floor(basePetals + r * 1.8);
     }
-    
-    // Customize scale and dimensions depending on zone
-    let scaleLen = 2.3;
-    let scaleWidth = 0.95;
-    
-    if (zone === 1) {
-      // Innermost: bunched up, narrower and slightly longer pointing out
-      scaleLen = 2.4;
-      scaleWidth = 0.60;
-    } else if (zone === 2) {
-      // Intermediate cups: flared out
-      scaleLen = 2.2;
-      scaleWidth = 1.05;
-    } else {
-      // Outermost: normal petals
-      scaleLen = 2.3;
-      scaleWidth = 0.95;
-    }
-    
-    const petalLen = (maxRadius / numRings) * scaleLen * state.scale;
-    const petalWidth = ringRadius * (Math.PI * 2 / numPetals) * scaleWidth * state.scale;
-    
-    for (let pIndex = 0; pIndex < numPetals; pIndex++) {
-      const angle = angleStep * pIndex + angleOffset;
+
+    const goldenAngle = 137.507764 * Math.PI / 180;
+
+    // Generate from outer (largest) to inner (smallest)
+    for (let pIndex = totalPetals - 1; pIndex >= 0; pIndex--) {
+      const t = pIndex / (totalPetals - 1);
+      const rPct = Math.sqrt(t);
+      const ringRadius = maxRadius * Math.pow(t, 0.55);
       
-      // Jitter amount scales down near the center of the flower
-      const jit = state.jitter * rPct;
+      const baseAngle = pIndex * goldenAngle + state.seed * 0.08;
       
-      // Rotation & translation helper for polar petal vertices
-      const getPt = (rOffset, aOffset) => {
-        const x = cx + rOffset * Math.cos(angle + aOffset);
-        const y = cy + rOffset * Math.sin(angle + aOffset);
-        return {
-          x: x + randomRange(-jit, jit),
-          y: y + randomRange(-jit, jit)
-        };
-      };
-      
-      // Hexagonal approximation of a football/oval petal
-      // Point 0: Inner Tip (base)
-      const p0 = getPt(ringRadius - petalLen * 0.5, 0);
-      
-      // Points 1 & 5: Inner Left & Right shoulders (tapered towards base)
-      const shoulderAngle = petalWidth / (2 * ringRadius);
-      const p1 = getPt(ringRadius - petalLen * 0.15, -shoulderAngle * 0.82);
-      const p5 = getPt(ringRadius - petalLen * 0.15, shoulderAngle * 0.82);
-      
-      // Points 2 & 4: Outer Left & Right shoulders (widest part, near outer half)
-      const p2 = getPt(ringRadius + petalLen * 0.18, -shoulderAngle * 1.05);
-      const p4 = getPt(ringRadius + petalLen * 0.18, shoulderAngle * 1.05);
-      
-      // Point 3: Outer Tip
-      const p3 = getPt(ringRadius + petalLen * 0.5, 0);
-      
-      // Point C: Petal Centroid/Center
-      const pc = getPt(ringRadius, 0);
-      
-      // Sway animation setup (anchored at the base inner tip p0)
-      const origin = p0;
-      const animSpeed = randomRange(4.8, 8.5);
+      let zone = 3;
+      if (rPct < 0.28) {
+        zone = 1;
+      } else if (rPct < 0.55) {
+        zone = 2;
+      }
+
+      let scaleLen = 2.3;
+      let scaleWidth = 0.95;
       
       if (zone === 1) {
-        // --- ZONE 1: INNERMOST PETALS ---
-        // Almost entirely rich purple, small white fade at tip
-        const sampleBase = sampleColor(p0.x, p0.y);
-        const sampleBody = sampleColor(pc.x, pc.y);
-        const sampleTip = sampleColor(p3.x, p3.y);
-        
-        // Solid rich purple base & body (90% blend)
-        const blendR = (s) => s.r * 0.1 + RICH_PURPLE.r * 0.9;
-        const blendG = (s) => s.g * 0.1 + RICH_PURPLE.g * 0.9;
-        const blendB = (s) => s.b * 0.1 + RICH_PURPLE.b * 0.9;
-        
-        const fBaseL = stylizeColor({ r: blendR(sampleBase), g: blendG(sampleBase), b: blendB(sampleBase) }, 'lit');
-        const fBaseR = stylizeColor({ r: blendR(sampleBase), g: blendG(sampleBase), b: blendB(sampleBase) }, 'shaded');
-        
-        const fBodyL = stylizeColor({ r: blendR(sampleBody), g: blendG(sampleBody), b: blendB(sampleBody) }, 'lit');
-        const fBodyR = stylizeColor({ r: blendR(sampleBody), g: blendG(sampleBody), b: blendB(sampleBody) }, 'shaded');
-        
-        // Tip fades slightly to white
-        const tipBlend = 0.22; // 22% white fade (mostly purple)
-        const tr = sampleTip.r * 0.05 + RICH_PURPLE.r * 0.73 + whiteTarget.r * tipBlend;
-        const tg = sampleTip.g * 0.05 + RICH_PURPLE.g * 0.73 + whiteTarget.g * tipBlend;
-        const tb = sampleTip.b * 0.05 + RICH_PURPLE.b * 0.73 + whiteTarget.b * tipBlend;
-        const fTipL = stylizeColor({ r: tr, g: tg, b: tb }, 'lit');
-        const fTipR = stylizeColor({ r: tr, g: tg, b: tb }, 'shaded');
-        
-        // Borders are also purple
-        const fBorderL = fBodyL;
-        const fBorderR = fBodyR;
-        
-        // Shards
-        petals.push(createPolygonNode([p0, p1, pc], fBaseL, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-base-l`, origin, animSpeed));
-        petals.push(createPolygonNode([p0, p5, pc], fBaseR, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-base-r`, origin, animSpeed));
-        petals.push(createPolygonNode([pc, p1, p2], fBodyL, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-body-l`, origin, animSpeed));
-        petals.push(createPolygonNode([pc, p5, p4], fBodyR, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-body-r`, origin, animSpeed));
-        petals.push(createPolygonNode([pc, p2, p3], fTipL, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-tip-l`, origin, animSpeed));
-        petals.push(createPolygonNode([pc, p4, p3], fTipR, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-tip-r`, origin, animSpeed));
-        petals.push(createPolygonNode([p1, p2, p3], fBorderL, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-border-l`, origin, animSpeed));
-        petals.push(createPolygonNode([p5, p4, p3], fBorderR, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-border-r`, origin, animSpeed));
-        
+        scaleLen = 2.4;
+        scaleWidth = 0.60;
       } else if (zone === 2) {
-        // --- ZONE 2: INTERMEDIATE CUP PETALS ---
-        // A little cup with a distinct white circle rim and a deep purple "inside"
-        const sampleBase = sampleColor(p0.x, p0.y);
-        
-        // Base is deep rich purple
-        const baseR = sampleBase.r * 0.1 + RICH_PURPLE.r * 0.9;
-        const baseG = sampleBase.g * 0.1 + RICH_PURPLE.g * 0.9;
-        const baseB = sampleBase.b * 0.1 + RICH_PURPLE.b * 0.9;
-        
-        const fBaseL = stylizeColor({ r: baseR, g: baseG, b: baseB }, 'lit');
-        const fBaseR = stylizeColor({ r: baseR, g: baseG, b: baseB }, 'shaded');
-        
-        // Rims (sides & tip of the cup) are bright white/cream
-        const fRimL = stylizeColor(whiteTarget, 'lit');
-        const fRimR = stylizeColor(whiteTarget, 'shaded');
-        
-        // Hollow Inside [pc, p2, p4] is deep dark plum/purple
-        const fHollow = stylizeColor(DEEP_PLUM_VAL, 'shaded');
-        
-        // Borders are crisp white highlights
-        const fBorderL = 'rgb(255, 255, 253)';
-        const fBorderR = 'rgb(230, 230, 225)';
-        
-        // Base deep purple shards
-        petals.push(createPolygonNode([p0, p1, pc], fBaseL, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-base-l`, origin, animSpeed));
-        petals.push(createPolygonNode([p0, p5, pc], fBaseR, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-base-r`, origin, animSpeed));
-        
-        // White cup rims
-        petals.push(createPolygonNode([pc, p1, p2], fRimL, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-body-l`, origin, animSpeed));
-        petals.push(createPolygonNode([pc, p5, p4], fRimR, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-body-r`, origin, animSpeed));
-        
-        // White tip rims
-        petals.push(createPolygonNode([pc, p2, p3], fRimL, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-tip-l`, origin, animSpeed));
-        petals.push(createPolygonNode([pc, p4, p3], fRimR, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-tip-r`, origin, animSpeed));
-        
-        // Hollow dark center (drawn on top of the rim to sit inside)
-        petals.push(createPolygonNode([pc, p2, p4], fHollow, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-hollow`, origin, animSpeed));
-        
-        // White border highlights
-        petals.push(createPolygonNode([p1, p2, p3], fBorderL, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-border-l`, origin, animSpeed));
-        petals.push(createPolygonNode([p5, p4, p3], fBorderR, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-border-r`, origin, animSpeed));
-        
+        scaleLen = 2.2;
+        scaleWidth = 1.05;
       } else {
-        // --- ZONE 3: OUTERMOST PETALS ---
-        // Normal flat petals, where purple is 80% of the length and white highlight at outer end
-        const sampleBase = sampleColor(p0.x, p0.y);
-        const sampleBody = sampleColor(pc.x, pc.y);
-        const sampleTip = sampleColor(p3.x, p3.y);
-        
-        // Base is 100% rich purple
-        const baseR = sampleBase.r * 0.1 + RICH_PURPLE.r * 0.9;
-        const baseG = sampleBase.g * 0.1 + RICH_PURPLE.g * 0.9;
-        const baseB = sampleBase.b * 0.1 + RICH_PURPLE.b * 0.9;
-        
-        const fBaseL = stylizeColor({ r: baseR, g: baseG, b: baseB }, 'lit');
-        const fBaseR = stylizeColor({ r: baseR, g: baseG, b: baseB }, 'shaded');
-        
-        // Body is 80% rich purple
-        const bodyR = sampleBody.r * 0.1 + RICH_PURPLE.r * 0.9;
-        const bodyG = sampleBody.g * 0.1 + RICH_PURPLE.g * 0.9;
-        const bodyB = sampleBody.b * 0.1 + RICH_PURPLE.b * 0.9;
-        
-        const fBodyL = stylizeColor({ r: bodyR, g: bodyG, b: bodyB }, 'lit');
-        const fBodyR = stylizeColor({ r: bodyR, g: bodyG, b: bodyB }, 'shaded');
-        
-        // Tip has the white highlight
-        const tipBlend = 0.52; // 52% white highlight (softer fade)
-        const tr = sampleTip.r * 0.05 + RICH_PURPLE.r * 0.43 + whiteTarget.r * tipBlend;
-        const tg = sampleTip.g * 0.05 + RICH_PURPLE.g * 0.43 + whiteTarget.g * tipBlend;
-        const tb = sampleTip.b * 0.05 + RICH_PURPLE.b * 0.43 + whiteTarget.b * tipBlend;
-        
-        const fTipL = stylizeColor({ r: tr, g: tg, b: tb }, 'lit');
-        const fTipR = stylizeColor({ r: tr, g: tg, b: tb }, 'shaded');
-        
-        // Borders are crisp white highlights
-        const fBorderL = 'rgb(255, 255, 253)';
-        const fBorderR = 'rgb(230, 230, 225)';
-        
-        // Base shards
-        petals.push(createPolygonNode([p0, p1, pc], fBaseL, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-base-l`, origin, animSpeed));
-        petals.push(createPolygonNode([p0, p5, pc], fBaseR, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-base-r`, origin, animSpeed));
-        
-        // Body shards
-        petals.push(createPolygonNode([pc, p1, p2], fBodyL, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-body-l`, origin, animSpeed));
-        petals.push(createPolygonNode([pc, p5, p4], fBodyR, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-body-r`, origin, animSpeed));
-        
-        // Tip shards
-        petals.push(createPolygonNode([pc, p2, p3], fTipL, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-tip-l`, origin, animSpeed));
-        petals.push(createPolygonNode([pc, p4, p3], fTipR, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-tip-r`, origin, animSpeed));
-        
-        // Border highlights
-        petals.push(createPolygonNode([p1, p2, p3], fBorderL, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-border-l`, origin, animSpeed));
-        petals.push(createPolygonNode([p5, p4, p3], fBorderR, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-border-r`, origin, animSpeed));
+        scaleLen = 2.3;
+        scaleWidth = 0.95;
+      }
+
+      const petalLen = (maxRadius / numRings) * scaleLen * state.scale;
+      const equivNumPetals = basePetals + (rPct * numRings - 1) * 1.8;
+      const numPetalsAtRadius = Math.max(basePetals, equivNumPetals);
+      const petalWidth = ringRadius * (Math.PI * 2 / numPetalsAtRadius) * scaleWidth * state.scale;
+
+      petalList.push({
+        ringRadius,
+        baseAngle,
+        rPct,
+        zone,
+        petalLen,
+        petalWidth,
+        rIndex: Math.floor(rPct * numRings),
+        pIndex
+      });
+    }
+  } else {
+    // 2. CONCENTRIC RINGS LAYOUT
+    for (let rIndex = numRings - 1; rIndex >= 0; rIndex--) {
+      const ringRadius = maxRadius * Math.pow((rIndex + 1) / numRings, 1.10);
+      const numPetals = Math.floor(basePetals + rIndex * 1.8);
+      const angleStep = (Math.PI * 2) / numPetals;
+      const angleOffset = rIndex * 0.13 + state.seed * 0.08;
+      const rPct = (rIndex + 1) / numRings;
+
+      let zone = 3;
+      if (rPct < 0.28) {
+        zone = 1;
+      } else if (rPct < 0.55) {
+        zone = 2;
+      }
+
+      let scaleLen = 2.3;
+      let scaleWidth = 0.95;
+      
+      if (zone === 1) {
+        scaleLen = 2.4;
+        scaleWidth = 0.60;
+      } else if (zone === 2) {
+        scaleLen = 2.2;
+        scaleWidth = 1.05;
+      } else {
+        scaleLen = 2.3;
+        scaleWidth = 0.95;
+      }
+
+      const petalLen = (maxRadius / numRings) * scaleLen * state.scale;
+      const petalWidth = ringRadius * (Math.PI * 2 / numPetals) * scaleWidth * state.scale;
+
+      for (let pIndex = 0; pIndex < numPetals; pIndex++) {
+        const baseAngle = angleStep * pIndex + angleOffset;
+        petalList.push({
+          ringRadius,
+          baseAngle,
+          rPct,
+          zone,
+          petalLen,
+          petalWidth,
+          rIndex,
+          pIndex
+        });
       }
     }
   }
-  
+
+  // Draw petals
+  petalList.forEach(p => {
+    const { ringRadius, baseAngle, rPct, zone, petalLen, petalWidth, rIndex, pIndex } = p;
+
+    // Seeded scale and angle jitter to break mechanical symmetry
+    const localScale = randomRange(0.92, 1.08);
+    const localAngleJitter = randomRange(-0.04, 0.04);
+    
+    const angle = baseAngle + localAngleJitter;
+    const pLen = petalLen * localScale;
+    const pWidth = petalWidth * localScale;
+
+    // Jitter scales down near the center of the flower
+    const jit = state.jitter * rPct;
+    
+    const getPt = (rOffset, aOffset) => {
+      const x = cx + rOffset * Math.cos(angle + aOffset);
+      const y = cy + rOffset * Math.sin(angle + aOffset);
+      return {
+        x: x + randomRange(-jit, jit),
+        y: y + randomRange(-jit, jit)
+      };
+    };
+    
+    const animSpeed = randomRange(4.8, 8.5);
+
+    // Compute basic colors and targets
+    const p0_sample = getPt(ringRadius - pLen * 0.5, 0);
+    const p3_sample = getPt(ringRadius + pLen * 0.5, 0);
+    const pc_sample = getPt(ringRadius, 0);
+
+    const sampleBase = sampleColor(p0_sample.x, p0_sample.y);
+    const sampleBody = sampleColor(pc_sample.x, pc_sample.y);
+    const sampleTip = sampleColor(p3_sample.x, p3_sample.y);
+
+    let fBaseL, fBaseR, fBodyL, fBodyR, fTipL, fTipR, fBorderL, fBorderR, fRimL, fRimR, fHollow;
+
+    if (zone === 1) {
+      const blendR = (s) => s.r * 0.1 + RICH_PURPLE.r * 0.9;
+      const blendG = (s) => s.g * 0.1 + RICH_PURPLE.g * 0.9;
+      const blendB = (s) => s.b * 0.1 + RICH_PURPLE.b * 0.9;
+      
+      fBaseL = stylizeColor({ r: blendR(sampleBase), g: blendG(sampleBase), b: blendB(sampleBase) }, 'lit');
+      fBaseR = stylizeColor({ r: blendR(sampleBase), g: blendG(sampleBase), b: blendB(sampleBase) }, 'shaded');
+      fBodyL = stylizeColor({ r: blendR(sampleBody), g: blendG(sampleBody), b: blendB(sampleBody) }, 'lit');
+      fBodyR = stylizeColor({ r: blendR(sampleBody), g: blendG(sampleBody), b: blendB(sampleBody) }, 'shaded');
+      
+      const tipBlend = 0.22;
+      const tr = sampleTip.r * 0.05 + RICH_PURPLE.r * 0.73 + whiteTarget.r * tipBlend;
+      const tg = sampleTip.g * 0.05 + RICH_PURPLE.g * 0.73 + whiteTarget.g * tipBlend;
+      const tb = sampleTip.b * 0.05 + RICH_PURPLE.b * 0.73 + whiteTarget.b * tipBlend;
+      fTipL = stylizeColor({ r: tr, g: tg, b: tb }, 'lit');
+      fTipR = stylizeColor({ r: tr, g: tg, b: tb }, 'shaded');
+      
+      fBorderL = fBodyL;
+      fBorderR = fBodyR;
+    } else if (zone === 2) {
+      const baseR = sampleBase.r * 0.1 + RICH_PURPLE.r * 0.9;
+      const baseG = sampleBase.g * 0.1 + RICH_PURPLE.g * 0.9;
+      const baseB = sampleBase.b * 0.1 + RICH_PURPLE.b * 0.9;
+      
+      fBaseL = stylizeColor({ r: baseR, g: baseG, b: baseB }, 'lit');
+      fBaseR = stylizeColor({ r: baseR, g: baseG, b: baseB }, 'shaded');
+      fRimL = stylizeColor(whiteTarget, 'lit');
+      fRimR = stylizeColor(whiteTarget, 'shaded');
+      fHollow = stylizeColor(DEEP_PLUM_VAL, 'shaded');
+      fBorderL = 'rgb(255, 255, 253)';
+      fBorderR = 'rgb(230, 230, 225)';
+    } else { // zone === 3
+      const baseR = sampleBase.r * 0.1 + RICH_PURPLE.r * 0.9;
+      const baseG = sampleBase.g * 0.1 + RICH_PURPLE.g * 0.9;
+      const baseB = sampleBase.b * 0.1 + RICH_PURPLE.b * 0.9;
+      fBaseL = stylizeColor({ r: baseR, g: baseG, b: baseB }, 'lit');
+      fBaseR = stylizeColor({ r: baseR, g: baseG, b: baseB }, 'shaded');
+      
+      const bodyR = sampleBody.r * 0.1 + RICH_PURPLE.r * 0.9;
+      const bodyG = sampleBody.g * 0.1 + RICH_PURPLE.g * 0.9;
+      const bodyB = sampleBody.b * 0.1 + RICH_PURPLE.b * 0.9;
+      fBodyL = stylizeColor({ r: bodyR, g: bodyG, b: bodyB }, 'lit');
+      fBodyR = stylizeColor({ r: bodyR, g: bodyG, b: bodyB }, 'shaded');
+      
+      const tipBlend = 0.52;
+      const tr = sampleTip.r * 0.05 + RICH_PURPLE.r * 0.43 + whiteTarget.r * tipBlend;
+      const tg = sampleTip.g * 0.05 + RICH_PURPLE.g * 0.43 + whiteTarget.g * tipBlend;
+      const tb = sampleTip.b * 0.05 + RICH_PURPLE.b * 0.43 + whiteTarget.b * tipBlend;
+      fTipL = stylizeColor({ r: tr, g: tg, b: tb }, 'lit');
+      fTipR = stylizeColor({ r: tr, g: tg, b: tb }, 'shaded');
+      
+      fBorderL = 'rgb(255, 255, 253)';
+      fBorderR = 'rgb(230, 230, 225)';
+    }
+
+    if (state.petalStyle === 'curved') {
+      // --- CURVED BÉZIER MODE ---
+      const getPetalPoints = (lenFactor, widthFactor) => {
+        const curLen = pLen * lenFactor;
+        const curWidth = pWidth * widthFactor;
+        
+        const p0_layer = getPt(ringRadius - pLen * 0.5, 0);
+        const shoulderAngle_layer = curWidth / (2 * Math.max(ringRadius, 5));
+        
+        const p1_layer = getPt(ringRadius - pLen * 0.5 + curLen * 0.35, -shoulderAngle_layer * 0.82);
+        const p5_layer = getPt(ringRadius - pLen * 0.5 + curLen * 0.35, shoulderAngle_layer * 0.82);
+        const p2_layer = getPt(ringRadius - pLen * 0.5 + curLen * 0.68, -shoulderAngle_layer * 1.05);
+        const p4_layer = getPt(ringRadius - pLen * 0.5 + curLen * 0.68, shoulderAngle_layer * 1.05);
+        const p3_layer = getPt(ringRadius - pLen * 0.5 + curLen, 0);
+        const pc_layer = getPt(ringRadius - pLen * 0.5 + curLen * 0.5, 0);
+        
+        return {
+          p0: p0_layer,
+          p1: p1_layer,
+          p2: p2_layer,
+          p3: p3_layer,
+          p4: p4_layer,
+          p5: p5_layer,
+          pc: pc_layer
+        };
+      };
+
+      const ptsFull = getPetalPoints(1.0, 1.0);
+      const origin = ptsFull.p0;
+
+      const drawCurvedLayer = (lenFactor, widthFactor, fillL, fillR, opacity, label) => {
+        const pts = getPetalPoints(lenFactor, widthFactor);
+        
+        const leftPath = `M ${pts.p0.x.toFixed(1)},${pts.p0.y.toFixed(1)} ` +
+                         `C ${pts.p1.x.toFixed(1)},${pts.p1.y.toFixed(1)} ` +
+                         `${pts.p2.x.toFixed(1)},${pts.p2.y.toFixed(1)} ` +
+                         `${pts.p3.x.toFixed(1)},${pts.p3.y.toFixed(1)} ` +
+                         `L ${pts.pc.x.toFixed(1)},${pts.pc.y.toFixed(1)} Z`;
+                         
+        const rightPath = `M ${pts.p0.x.toFixed(1)},${pts.p0.y.toFixed(1)} ` +
+                          `C ${pts.p5.x.toFixed(1)},${pts.p5.y.toFixed(1)} ` +
+                          `${pts.p4.x.toFixed(1)},${pts.p4.y.toFixed(1)} ` +
+                          `${pts.p3.x.toFixed(1)},${pts.p3.y.toFixed(1)} ` +
+                          `L ${pts.pc.x.toFixed(1)},${pts.pc.y.toFixed(1)} Z`;
+                          
+        petals.push(createPathNode(leftPath, fillL, opacity, 'normal', `petal-r${rIndex}-p${pIndex}-${label}-l`, origin, animSpeed));
+        petals.push(createPathNode(rightPath, fillR, opacity, 'normal', `petal-r${rIndex}-p${pIndex}-${label}-r`, origin, animSpeed));
+      };
+
+      if (zone === 1) {
+        // Layer 1: Full tip color
+        drawCurvedLayer(1.0, 1.0, fTipL, fTipR, 1.0, 'base');
+        // Layer 2: Inner purple body
+        drawCurvedLayer(0.7, 0.8, fBaseL, fBaseR, 1.0, 'body');
+      } else if (zone === 2) {
+        // Layer 1: Full border
+        drawCurvedLayer(1.0, 1.0, fBorderL, fBorderR, 1.0, 'border');
+        // Layer 2: Middle purple body
+        drawCurvedLayer(0.88, 0.82, fRimL, fRimR, 1.0, 'body');
+        // Layer 3: Inner dark hollow
+        const fHollowL = stylizeColor(DEEP_PLUM_VAL, 'lit');
+        const fHollowR = stylizeColor(DEEP_PLUM_VAL, 'shaded');
+        drawCurvedLayer(0.65, 0.55, fHollowL, fHollowR, 1.0, 'hollow');
+      } else { // zone === 3
+        // Layer 1: Full border
+        drawCurvedLayer(1.0, 1.0, fBorderL, fBorderR, 1.0, 'border');
+        // Layer 2: Middle tip highlight
+        drawCurvedLayer(0.94, 0.9, fTipL, fTipR, 1.0, 'tip');
+        // Layer 3: Inner purple body
+        drawCurvedLayer(0.80, 0.8, fBaseL, fBaseR, 1.0, 'body');
+      }
+
+    } else {
+      // --- FACETED MODE (POLYGONS) ---
+      const M = state.facetResolution / 2; // e.g. 2, 3, 4, 5, 6
+      const rStart = ringRadius - pLen * 0.5;
+      
+      const leftPts = [];
+      const rightPts = [];
+      const centerPts = [];
+      
+      for (let j = 0; j <= M; j++) {
+        const r_j = rStart + (j / M) * pLen;
+        const w_j = pWidth * Math.sin((j / M) * Math.PI);
+        const theta_j = w_j / (2 * Math.max(r_j, 5));
+        
+        leftPts.push(getPt(r_j, -theta_j));
+        rightPts.push(getPt(r_j, theta_j));
+        centerPts.push(getPt(r_j, 0));
+      }
+
+      const pc = getPt(ringRadius, 0);
+      const origin = centerPts[0];
+
+      for (let j = 0; j < M; j++) {
+        let fillL, fillR;
+        if (zone === 1) {
+          if (j === 0) {
+            fillL = fBaseL; fillR = fBaseR;
+          } else if (j === M - 1) {
+            fillL = fTipL; fillR = fTipR;
+          } else {
+            fillL = fBodyL; fillR = fBodyR;
+          }
+        } else if (zone === 2) {
+          if (j === 0) {
+            fillL = fBaseL; fillR = fBaseR;
+          } else {
+            fillL = fRimL; fillR = fRimR;
+          }
+        } else { // zone === 3
+          if (j === 0) {
+            fillL = fBaseL; fillR = fBaseR;
+          } else if (j === M - 1) {
+            fillL = fTipL; fillR = fTipR;
+          } else {
+            fillL = fBodyL; fillR = fBodyR;
+          }
+        }
+
+        petals.push(createPolygonNode([pc, leftPts[j], leftPts[j+1]], fillL, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-seg${j}-l`, origin, animSpeed));
+        petals.push(createPolygonNode([pc, rightPts[j], rightPts[j+1]], fillR, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-seg${j}-r`, origin, animSpeed));
+      }
+
+      // Hollow overlay for Zone 2
+      if (zone === 2) {
+        petals.push(createPolygonNode([pc, leftPts[M-1], rightPts[M-1]], fHollow, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-hollow`, origin, animSpeed));
+      }
+
+      // Border triangles
+      for (let j = 1; j <= M - 2; j++) {
+        petals.push(createPolygonNode([leftPts[j], leftPts[j+1], leftPts[M]], fBorderL, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-border-l-${j}`, origin, animSpeed));
+        petals.push(createPolygonNode([rightPts[j], rightPts[j+1], rightPts[M]], fBorderR, 1.0, 'normal', `petal-r${rIndex}-p${pIndex}-border-r-${j}`, origin, animSpeed));
+      }
+    }
+  });
+
   return petals.join('\n');
 }
 
@@ -663,6 +798,131 @@ function generatePrismaticRays() {
   return leaves.join('\n');
 }
 
+// Generates global prismatic slicing wedges radiating from the center
+function generatePrismaticWedges(cx, cy) {
+  const count = state.wedges;
+  if (!count || count === 0) return '';
+  
+  const wedges = [];
+  const R = 1500; // large enough to cover the canvas and bleed out
+  
+  // Set deterministic PRNG seed based on current seed + 101
+  setSeed(state.seed + 101);
+  
+  const gradientTypes = ['url(#fadeWhite)', 'url(#fadePurple)', 'url(#fadeDark)'];
+  const blendModes = ['overlay', 'screen', 'multiply'];
+  const opacities = [0.22, 0.35, 0.55]; // corresponding base opacities for white, purple, dark
+  
+  for (let i = 0; i < count; i++) {
+    // Generate randomized angles
+    const startAngle = random() * Math.PI * 2;
+    const widthAngle = randomRange(20, 50) * Math.PI / 180;
+    const endAngle = startAngle + widthAngle;
+    
+    const p0 = { x: cx, y: cy };
+    const p1 = { x: cx + R * Math.cos(startAngle), y: cy + R * Math.sin(startAngle) };
+    const p2 = { x: cx + R * Math.cos(endAngle), y: cy + R * Math.sin(endAngle) };
+    
+    // Choose gradient type based on index
+    const gradIndex = i % 3;
+    const fill = gradientTypes[gradIndex];
+    const blendMode = blendModes[gradIndex];
+    const opacity = opacities[gradIndex] * randomRange(0.8, 1.2);
+    
+    // Create animated sway for the wedge
+    let animElement = '';
+    if (state.animated) {
+      const dur = randomRange(12, 22);
+      animElement = `<animateTransform 
+        attributeName="transform" 
+        type="rotate" 
+        values="-1.5 ${cx} ${cy}; 1.5 ${cx} ${cy}; -1.5 ${cx} ${cy}" 
+        dur="${dur.toFixed(2)}s" 
+        repeatCount="indefinite" />`;
+    }
+    
+    const ptsStr = `${p0.x.toFixed(1)},${p0.y.toFixed(1)} ${p1.x.toFixed(1)},${p1.y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`;
+    const styleStr = ` style="mix-blend-mode: ${blendMode}; pointer-events: none;"`;
+    
+    wedges.push(`<polygon points="${ptsStr}" fill="${fill}" opacity="${opacity.toFixed(2)}"${styleStr}>${animElement}</polygon>`);
+  }
+  
+  return wedges.join('\n');
+}
+
+// Generates crystalline armature lines and light node circles
+function generateArmatureLines(cx, cy) {
+  if (!state.armature) return '';
+  
+  const elements = [];
+  setSeed(state.seed + 202);
+  
+  const lineColors = ['#ffffff', '#ffffff', 'rgb(255, 255, 253)', 'rgb(240, 230, 250)'];
+  const lineCount = 5;
+  const points = [];
+  
+  // 1. Generate randomized lines slicing across the canvas
+  for (let i = 0; i < lineCount; i++) {
+    let p1, p2;
+    if (i % 2 === 0) {
+      // Horizontal-ish: Left to Right
+      p1 = { x: 0, y: randomRange(100, SVG_HEIGHT - 100) };
+      p2 = { x: SVG_WIDTH, y: randomRange(100, SVG_HEIGHT - 100) };
+    } else {
+      // Vertical-ish: Top to Bottom
+      p1 = { x: randomRange(100, SVG_WIDTH - 100), y: 0 };
+      p2 = { x: randomRange(100, SVG_WIDTH - 100), y: SVG_HEIGHT };
+    }
+    
+    points.push({ p1, p2 });
+    
+    const color = randomChoice(lineColors);
+    const strokeWidth = i === 0 ? 1.5 : 1;
+    const opacity = randomRange(0.12, 0.28);
+    
+    elements.push(`<line x1="${p1.x.toFixed(1)}" y1="${p1.y.toFixed(1)}" x2="${p2.x.toFixed(1)}" y2="${p2.y.toFixed(1)}" stroke="${color}" stroke-width="${strokeWidth}" opacity="${opacity.toFixed(2)}" style="pointer-events: none;" />`);
+  }
+  
+  // 2. Draw glowing light nodes (stars) at select intersection coordinates
+  const intersect = (l1, l2) => {
+    const x1 = l1.p1.x, y1 = l1.p1.y, x2 = l1.p2.x, y2 = l1.p2.y;
+    const x3 = l2.p1.x, y3 = l2.p1.y, x4 = l2.p2.x, y4 = l2.p2.y;
+    
+    const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+    if (Math.abs(denom) < 1) return null;
+    
+    const x = ((x1 * y2 - y1 * x2) * (x3 - x4) - (x1 - x2) * (x3 * y4 - y3 * x4)) / denom;
+    const y = ((x1 * y2 - y1 * x2) * (y3 - y4) - (y1 - y2) * (x3 * y4 - y3 * x4)) / denom;
+    
+    if (x >= 0 && x <= SVG_WIDTH && y >= 0 && y <= SVG_HEIGHT) {
+      return { x, y };
+    }
+    return null;
+  };
+  
+  for (let i = 0; i < points.length - 1; i++) {
+    const pt = intersect(points[i], points[i + 1]);
+    if (pt) {
+      const radius = randomRange(1.8, 3.2);
+      const opacity = randomRange(0.4, 0.75);
+      elements.push(`<circle cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="${radius.toFixed(1)}" fill="#ffffff" opacity="${opacity.toFixed(2)}" style="pointer-events: none;" />`);
+    }
+  }
+  
+  // Add symmetric nodes around center
+  const centerNodes = 5;
+  const radiusFromCenter = 300;
+  for (let i = 0; i < centerNodes; i++) {
+    const angle = (i * (360 / centerNodes) + randomRange(-10, 10)) * Math.PI / 180;
+    const px = cx + radiusFromCenter * Math.cos(angle);
+    const py = cy + radiusFromCenter * Math.sin(angle);
+    const r = randomRange(1.2, 2.2);
+    elements.push(`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${r.toFixed(1)}" fill="#ffffff" opacity="0.5" style="pointer-events: none;" />`);
+  }
+  
+  return elements.join('\n');
+}
+
 // Renders the entire SVG scene and updates the DOM
 function renderArtboard() {
   const loader = document.getElementById('loader-overlay');
@@ -679,15 +939,34 @@ function renderArtboard() {
   const stemLeavesHTML = generateStemAndLeaves(cx, cy);
   const petalsHTML = generateDahliaPetals(cx, cy);
   const leavesHTML = generatePrismaticRays(); // broad background green leaves
+  const wedgesHTML = generatePrismaticWedges(cx, cy); // global slicing wedges
+  const armatureHTML = generateArmatureLines(cx, cy); // geometric armature lines & stars
   
   // Canvas Noise filter template
-  const filterHTML = state.grain ? `
-    <defs>
+  const noiseFilter = state.grain ? `
       <filter id="noise">
         <feTurbulence type="fractalNoise" baseFrequency="0.55" numOctaves="4" result="turbulence" />
         <feColorMatrix type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.12 0" in="turbulence" result="coloredNoise" />
-      </filter>
-    </defs>` : '';
+      </filter>` : '';
+  
+  // Linear Gradients using dynamic colors
+  const defsHTML = `
+    <defs>
+      ${noiseFilter}
+      <linearGradient id="fadeWhite" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.30"/>
+        <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+      </linearGradient>
+      <linearGradient id="fadePurple" x1="100%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stop-color="${stylizeColor(extractedColors.core)}" stop-opacity="0.35"/>
+        <stop offset="100%" stop-color="${stylizeColor(extractedColors.shadow)}" stop-opacity="0"/>
+      </linearGradient>
+      <linearGradient id="fadeDark" x1="0%" y1="100%" x2="100%" y2="0%">
+        <stop offset="0%" stop-color="#0a1210" stop-opacity="0.65"/>
+        <stop offset="100%" stop-color="#0a1210" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+  `;
   
   const grainOverlayHTML = state.grain ? `
     <rect width="100%" height="100%" filter="url(#noise)" style="mix-blend-mode: multiply; pointer-events: none;" />` : '';
@@ -703,9 +982,9 @@ function renderArtboard() {
       class="generative-art"
       style="background-color: #0c0f17; width: 100%; height: 100%;"
     >
-      ${filterHTML}
+      ${defsHTML}
       
-      <!-- 1. Background foliage green leaves (replacing radial shards) -->
+      <!-- 1. Background foliage green leaves -->
       <g id="g-background">${leavesHTML}</g>
       
       <!-- 2. Stem and Leaves -->
@@ -713,8 +992,14 @@ function renderArtboard() {
       
       <!-- 3. Dahlia Petals -->
       <g id="g-dahlia">${petalsHTML}</g>
+
+      <!-- 4. Crystalline Armature Lines & Light Nodes -->
+      <g id="g-armature">${armatureHTML}</g>
       
-      <!-- 4. Global Texture overlay -->
+      <!-- 5. Prismatic Wedges (Slicing Overlays) -->
+      <g id="g-wedges">${wedgesHTML}</g>
+      
+      <!-- 6. Global Texture overlay -->
       ${grainOverlayHTML}
     </svg>
   `;
@@ -733,7 +1018,8 @@ function renderArtboard() {
   
   // Update status message
   const statusDisplay = document.getElementById('status-display');
-  statusDisplay.textContent = `SEED: ${state.seed} // PETALS: ${state.rings * state.petalsBase * 2} // MODE: SVG`;
+  const totalPetalsText = state.layoutMode === 'spiral' ? 'SPIRAL' : 'RINGS';
+  statusDisplay.textContent = `SEED: ${state.seed} // LAYOUT: ${totalPetalsText} // MODE: SVG`;
   
   // Fade out loader
   setTimeout(() => {
@@ -750,7 +1036,8 @@ function bindUIEvents() {
     { id: 'petals', stateKey: 'petalsBase', displayId: 'val-petals' },
     { id: 'scale', stateKey: 'scale', displayId: 'val-scale' },
     { id: 'rays', stateKey: 'rays', displayId: 'val-rays' },
-    { id: 'ray-opacity', stateKey: 'rayOpacity', displayId: 'val-ray-opacity' }
+    { id: 'ray-opacity', stateKey: 'rayOpacity', displayId: 'val-ray-opacity' },
+    { id: 'wedges', stateKey: 'wedges', displayId: 'val-wedges' }
   ];
   
   // Slide controls
@@ -764,7 +1051,7 @@ function bindUIEvents() {
     
     input.addEventListener('input', (e) => {
       let val = parseFloat(e.target.value);
-      if (ctrl.id === 'seed' || ctrl.id === 'jitter' || ctrl.id === 'rings' || ctrl.id === 'petals' || ctrl.id === 'rays') {
+      if (ctrl.id === 'seed' || ctrl.id === 'jitter' || ctrl.id === 'rings' || ctrl.id === 'petals' || ctrl.id === 'rays' || ctrl.id === 'wedges') {
         val = parseInt(val, 10);
       }
       state[ctrl.stateKey] = val;
@@ -783,6 +1070,49 @@ function bindUIEvents() {
     state.blendMode = e.target.value;
     renderArtboard();
   });
+
+  // Select control for layout mode
+  const layoutSelect = document.getElementById('input-layout');
+  layoutSelect.value = state.layoutMode;
+  layoutSelect.addEventListener('change', (e) => {
+    state.layoutMode = e.target.value;
+    renderArtboard();
+  });
+
+  // Select control for petal style type
+  const styleSelect = document.getElementById('input-style-type');
+  const resolutionContainer = document.getElementById('container-resolution');
+  const resolutionInput = document.getElementById('input-resolution');
+  const resolutionVal = document.getElementById('val-resolution');
+  
+  styleSelect.value = state.petalStyle;
+  resolutionInput.value = state.facetResolution;
+  resolutionVal.textContent = state.facetResolution;
+  
+  const toggleResolutionVisibility = () => {
+    if (state.petalStyle === 'curved') {
+      resolutionContainer.style.display = 'none';
+    } else {
+      resolutionContainer.style.display = 'block';
+    }
+  };
+  
+  toggleResolutionVisibility();
+  
+  styleSelect.addEventListener('change', (e) => {
+    state.petalStyle = e.target.value;
+    toggleResolutionVisibility();
+    renderArtboard();
+  });
+  
+  resolutionInput.addEventListener('input', (e) => {
+    const val = parseInt(e.target.value, 10);
+    state.facetResolution = val;
+    resolutionVal.textContent = val;
+    
+    if (this.renderTimeout) clearTimeout(this.renderTimeout);
+    this.renderTimeout = setTimeout(renderArtboard, 20);
+  });
   
   // Checkbox controls
   const grainCheckbox = document.getElementById('input-grain');
@@ -796,6 +1126,14 @@ function bindUIEvents() {
   animatedCheckbox.checked = state.animated;
   animatedCheckbox.addEventListener('change', (e) => {
     state.animated = e.target.checked;
+    renderArtboard();
+  });
+
+  // Armature checkbox control
+  const armatureCheckbox = document.getElementById('input-armature');
+  armatureCheckbox.checked = state.armature;
+  armatureCheckbox.addEventListener('change', (e) => {
+    state.armature = e.target.checked;
     renderArtboard();
   });
   
