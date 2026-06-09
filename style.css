@@ -626,7 +626,37 @@ svg.generative-art {
   width: 24px;
   height: 24px;
   position: relative;
-  z-index: 12;
+}
+
+/* Anniversary Caption */
+.anniversary-caption {
+  margin-top: 1.75rem;
+  color: var(--text-secondary);
+  font-family: var(--font-title);
+  font-size: 1.05rem;
+  font-weight: 300;
+  letter-spacing: 0.04em;
+  text-align: center;
+  line-height: 1.6;
+  max-width: 500px;
+  opacity: 0.75;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 2;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.anniversary-caption:hover {
+  opacity: 1;
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+.anniversary-highlight {
+  color: var(--accent-orange);
+  font-weight: 600;
+  background: linear-gradient(120deg, var(--accent-orange) 0%, #fad155 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 /* Media Queries */
@@ -669,6 +699,12 @@ svg.generative-art {
     transform: translateY(100%);
   }
   
+  .anniversary-caption {
+    font-size: 0.95rem;
+    margin-top: 1.25rem;
+    max-width: 90%;
+  }
+
   .reference-panel {
     display: none; /* Hide floating on mobile, or put it in layout */
   }

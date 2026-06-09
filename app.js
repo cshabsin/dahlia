@@ -22,6 +22,7 @@ const state = {
   grain: true,
   animated: true,
   imageLoaded: false,
+  isCustomUpload: false,
   layoutMode: 'spiral',
   wedges: 5,
   armature: false,
@@ -221,14 +222,16 @@ function extractFlowerColors() {
     };
   }
   
-  // --- ENFORCE DEEP BLUISH VIOLET SHIFT ---
-  // Shift towards bluish violet: boost blue relative to red, and darken overall
-  let { r: cr, g: cg, b: cb } = extractedColors.core;
-  cb = Math.min(255, Math.max(cb, Math.round(cr * 1.18)));
-  cr = Math.round(cr * 0.68);
-  cg = Math.round(cg * 0.60);
-  cb = Math.round(cb * 0.85);
-  extractedColors.core = { r: cr, g: cg, b: cb };
+  if (!state.isCustomUpload) {
+    // --- ENFORCE DEEP BLUISH VIOLET SHIFT (Default Image Only) ---
+    // Shift towards bluish violet: boost blue relative to red, and darken overall
+    let { r: cr, g: cg, b: cb } = extractedColors.core;
+    cb = Math.min(255, Math.max(cb, Math.round(cr * 1.18)));
+    cr = Math.round(cr * 0.68);
+    cg = Math.round(cg * 0.60);
+    cb = Math.round(cb * 0.85);
+    extractedColors.core = { r: cr, g: cg, b: cb };
+  }
   
   // Create deep rich plum shadow from the core violet/purple (make it dark but saturated)
   extractedColors.shadow = {
@@ -266,7 +269,11 @@ function extractFlowerColors() {
     extractedColors.highlight = { r: 248, g: 248, b: 243 };
   }
   
-  console.log("Dynamically Extracted Palette (Bluish-Violet Enforced):", extractedColors);
+  if (state.isCustomUpload) {
+    console.log("Dynamically Extracted Palette (Custom Upload - Pure Samples):", extractedColors);
+  } else {
+    console.log("Dynamically Extracted Palette (Bluish-Violet Enforced):", extractedColors);
+  }
 }
 
 function initImageSampler() {
@@ -1426,6 +1433,7 @@ function bindUIEvents() {
 
 // Reads uploaded image and sets it as the sampler source
 function handleImageUpload(file) {
+  state.isCustomUpload = true;
   if (!file.type.startsWith('image/')) {
     alert('Please upload an image file (PNG, JPG, WEBP).');
     return;
